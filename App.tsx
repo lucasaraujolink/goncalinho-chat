@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, FileText, Trash2, Plus, BarChart3, Database, MessageSquare, ArrowLeft, Save, Upload, Cloud, Loader2, Tag, Lock, X } from 'lucide-react';
+import { Send, FileText, Trash2, Plus, BarChart3, Database, MessageSquare, ArrowLeft, Save, Upload, Cloud, Loader2, Tag, Lock, X, WifiOff, RefreshCw } from 'lucide-react';
 import { FileUploader } from './components/FileUploader';
 import { ChatMessage } from './components/ChatMessage';
-import { UploadedFile, Message, FileCategory } from './types';
+import { UploadedFile, Message, FileCategory, ChartData } from './types';
 import { api } from './services/api';
 
 type ViewState = 'chat' | 'upload';
@@ -28,6 +28,7 @@ function App() {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [connectionError, setConnectionError] = useState(false);
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -52,23 +53,26 @@ function App() {
   });
 
   // Load initial data from Server
+  const loadData = async () => {
+    try {
+      setConnectionError(false);
+      const loadedFiles = await api.getAllFiles();
+      setFiles(loadedFiles);
+      
+      const welcomeMsg: Message = {
+        id: 'welcome',
+        role: 'model',
+        text: 'Olá! Sou o **Gonçalinho**, seu especialista em indicadores.\n\nEstou conectado à base de dados segura e pronto para gerar análises e gráficos. Como posso ajudar você hoje?',
+        timestamp: Date.now()
+      };
+      setMessages([welcomeMsg]);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+      setConnectionError(true);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const loadedFiles = await api.getAllFiles();
-        setFiles(loadedFiles);
-        
-        const welcomeMsg: Message = {
-          id: 'welcome',
-          role: 'model',
-          text: 'Olá! Sou o **Gonçalinho**, seu especialista em indicadores.\n\nEstou conectado à base de dados segura. Como posso ajudar você hoje?',
-          timestamp: Date.now()
-        };
-        setMessages([welcomeMsg]);
-      } catch (error) {
-        console.error("Failed to load data:", error);
-      }
-    };
     loadData();
   }, []);
 
@@ -121,7 +125,7 @@ function App() {
       alert("Arquivo processado e salvo com sucesso!");
     } catch (error) {
       console.error("Failed to save file:", error);
-      alert("Erro ao salvar arquivo. Verifique o console.");
+      alert("Erro ao salvar arquivo. Verifique se o servidor está online.");
     } finally {
       setIsUploading(false);
     }
@@ -169,12 +173,32 @@ function App() {
       await api.sendMessageStream(userMsg.text, messages, (chunk) => {
         accumulatedText += chunk;
         
+        // Real-time parsing for Chart JSON block
+        let displayText = accumulatedText;
+        let chartData: ChartData | undefined = undefined;
+
+        // Regex to find ```json { ... } ``` blocks
+        const jsonBlockRegex = /```json\s*(\{[\s\S]*?\})\s*```/;
+        const match = accumulatedText.match(jsonBlockRegex);
+
+        if (match) {
+            try {
+                // If found, parse JSON and remove it from display text
+                const jsonStr = match[1];
+                chartData = JSON.parse(jsonStr);
+                displayText = accumulatedText.replace(match[0], '').trim();
+            } catch (e) {
+                console.warn("Failed to parse chart JSON from stream", e);
+            }
+        }
+
         setMessages(prev => prev.map(m => {
           if (m.id === loadingId) {
             return {
               ...m,
-              text: accumulatedText,
-              isLoading: false
+              text: displayText,
+              isLoading: false,
+              chartData: chartData // Update chart data if found
             };
           }
           return m;
@@ -184,7 +208,7 @@ function App() {
     } catch (error) {
       setMessages(prev => prev.map(m => m.id === loadingId ? {
         ...m,
-        text: "**Erro:** Não foi possível conectar ao servidor de inteligência.",
+        text: "**Erro:** Não foi possível conectar ao servidor de inteligência. Verifique sua conexão.",
         isLoading: false
       } : m));
     } finally {
@@ -229,7 +253,7 @@ function App() {
               className="w-full h-full object-contain drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]"
             />
           </div>
-          <h1 className="font-bold text-xl tracking-tight text-white">Gonçalinho <span className="text-xs font-normal text-slate-400 ml-1">v2.0</span></h1>
+          <h1 className="font-bold text-xl tracking-tight text-white">Gonçalinho <span className="text-xs font-normal text-slate-400 ml-1">v2.1</span></h1>
         </div>
         
         <div className="flex items-center gap-3">
@@ -263,11 +287,25 @@ function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden relative">
         
+        {/* Connection Error Banner */}
+        {connectionError && (
+          <div className="absolute top-0 left-0 right-0 z-50 bg-red-500/90 text-white px-4 py-2 flex items-center justify-center gap-3 backdrop-blur-sm animate-in slide-in-from-top">
+            <WifiOff size={18} />
+            <span className="text-sm font-medium">Conexão com o servidor perdida. Verifique se o backend está rodando.</span>
+            <button 
+              onClick={loadData}
+              className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors"
+            >
+              <RefreshCw size={12} /> Tentar Novamente
+            </button>
+          </div>
+        )}
+
         {/* --- CHAT VIEW --- */}
         <div className={`absolute inset-0 flex flex-col transition-transform duration-300 ${view === 'chat' ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth pb-8">
             <div className="max-w-4xl mx-auto">
-              {files.length === 0 && messages.length < 2 && (
+              {!connectionError && files.length === 0 && messages.length < 2 && (
                 <div className="mt-8 mb-8 p-8 bg-slate-900/50 border border-slate-800 rounded-2xl text-center">
                   <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Cloud className="w-8 h-8 text-sky-500" />
@@ -299,15 +337,16 @@ function App() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Pergunte sobre os indicadores, peça comparações..."
-                className="w-full bg-slate-900 text-slate-200 placeholder-slate-500 rounded-2xl border border-slate-700 p-4 pr-14 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none h-14 min-h-[56px] max-h-40 shadow-xl transition-all"
+                placeholder="Peça gráficos, compare dados ou tire dúvidas..."
+                disabled={connectionError}
+                className="w-full bg-slate-900 text-slate-200 placeholder-slate-500 rounded-2xl border border-slate-700 p-4 pr-14 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none h-14 min-h-[56px] max-h-40 shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 rows={1}
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!inputValue.trim() || isProcessing}
+                disabled={!inputValue.trim() || isProcessing || connectionError}
                 className={`absolute right-2 top-2 p-2.5 rounded-xl transition-all
-                  ${inputValue.trim() && !isProcessing
+                  ${inputValue.trim() && !isProcessing && !connectionError
                     ? 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg' 
                     : 'bg-slate-800 text-slate-600 cursor-not-allowed'
                   }`}
@@ -317,7 +356,7 @@ function App() {
             </div>
             <div className="flex items-center justify-center mt-2 text-[10px] text-slate-500 gap-1.5">
                <Lock size={10} />
-               <span>Ambiente Seguro • Processamento em Servidor</span>
+               <span>Ambiente Seguro • Geração de Gráficos Ativa</span>
             </div>
           </div>
         </div>
@@ -469,8 +508,11 @@ function App() {
                 {files.length === 0 ? (
                   <div className="h-64 flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-800 rounded-2xl text-center">
                     <p className="text-slate-500 font-medium">
-                       {isAuthenticated ? "Nenhum arquivo processado" : "Conecte-se para ver os arquivos"}
+                       {connectionError ? "Sem conexão com o servidor" : (isAuthenticated ? "Nenhum arquivo processado" : "Conecte-se para ver os arquivos")}
                     </p>
+                    {connectionError && (
+                      <button onClick={loadData} className="mt-4 text-emerald-500 text-sm font-bold flex items-center gap-1 hover:underline"><RefreshCw size={14}/> Tentar Reconectar</button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">

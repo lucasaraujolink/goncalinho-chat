@@ -38,17 +38,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
               <span className="animate-pulse font-medium">Gonçalinho está analisando...</span>
             </div>
           ) : (
-            <>
+            <div className="flex flex-col gap-4">
               <div className="prose prose-invert prose-sm max-w-none break-words">
                 <ReactMarkdown>{message.text}</ReactMarkdown>
               </div>
               
               {message.chartData && (
-                <div className="mt-4">
+                <div className="w-full mt-2 animate-in fade-in zoom-in duration-500">
                   <ChartRenderer data={message.chartData} />
                 </div>
               )}
-            </>
+            </div>
           )}
           
           <span className="text-[10px] opacity-40 mt-2 self-end font-medium">

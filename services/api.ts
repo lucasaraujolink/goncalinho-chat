@@ -4,15 +4,10 @@ const API_URL = '/api';
 
 export const api = {
   async getAllFiles(): Promise<UploadedFile[]> {
-    try {
-      const res = await fetch(`${API_URL}/files`);
-      if (!res.ok) throw new Error('Failed to fetch files');
-      return res.json();
-    } catch (error) {
-      console.error("API Error:", error);
-      // Return empty array to prevent UI crash on connection failure
-      return [];
-    }
+    // Let the component handle the error
+    const res = await fetch(`${API_URL}/files`);
+    if (!res.ok) throw new Error('Failed to fetch files');
+    return res.json();
   },
 
   async uploadFile(file: File, metadata: any): Promise<UploadedFile> {
