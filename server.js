@@ -81,8 +81,27 @@ const processFile = async (filePath, originalName, mimeType) => {
       const result = await mammoth.extractRawText({ path: filePath });
       chunks = chunkText(result.value, 1500);
     } else if (ext === '.csv') {
-      const fileContent = fs.readFileSync(filePath, 'utf8');
-      const records = parse(fileContent, { columns: true, skip_empty_lines: true });
+      // 1. Read buffer to handle encoding manually
+      const buffer = fs.readFileSync(filePath);
+      
+      // 2. Simple Encoding Detection
+      // First try UTF-8. If it contains replacement char (), fallback to Latin1 (common in BR Gov files)
+      let fileContent = buffer.toString('utf8');
+      if (fileContent.includes('\ufffd')) {
+        fileContent = buffer.toString('latin1');
+      }
+
+      // 3. Robust Parsing options
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        bom: true, // Handle Byte Order Mark
+        delimiter: [';', ',', '\t', '|'], // Auto-detect separator, prioritizing semicolon
+        relax_quotes: true, // Fix for "Invalid Opening Quote"
+        relax_column_count: true, // Allow rows with different column counts
+        skip_records_with_error: true // Skip lines that are totally broken instead of crashing
+      });
       chunks = chunkTable(records, 20); // Reduced to 20 for better context
     } else if (ext === '.xlsx' || ext === '.xls') {
       const workbook = xlsx.readFile(filePath);
@@ -98,7 +117,12 @@ const processFile = async (filePath, originalName, mimeType) => {
       });
       chunks = chunkTable(allRecords, 20); // Reduced to 20
     } else if (ext === '.txt') {
-      const text = fs.readFileSync(filePath, 'utf8');
+      // Handle encoding for TXT as well
+      const buffer = fs.readFileSync(filePath);
+      let text = buffer.toString('utf8');
+      if (text.includes('\ufffd')) {
+        text = buffer.toString('latin1');
+      }
       chunks = chunkText(text, 1000);
     }
   } catch (err) {
